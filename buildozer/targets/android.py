@@ -787,31 +787,40 @@ class TargetAndroid(Target):
             pass
 
         # XXX found how the apk name is really built from the title
-        gradle_files = ["build.gradle", "gradle", "gradlew"]
-        is_gradle_build = any((
-            exists(join(dist_dir, x)) for x in gradle_files))
-        if is_gradle_build:
-            # on gradle build, the apk use the package name, and have no version
-            packagename = config.get('app', 'package.name')
-            apk = u'{packagename}-{mode}.apk'.format(
-                packagename=packagename, mode=mode)
-            apk_dir = join(dist_dir, "build", "outputs", "apk")
+        packagename = config.get('app', 'package.name')
+        apptitle = config.get('app', 'title')
+        if hasattr(apptitle, 'decode'):
+            apptitle = apptitle.decode('utf-8')
+        bl = u'\'" ,'
+        apktitle = ''.join([x for x in apptitle if x not in bl])
+        # on gradle build, the apk use the package name, and have no version
+        apk_gradle = u'{packagename}-{mode}.apk'.format(
+            packagename=packagename, mode=mode)
+        apk_dir_gradle = join(dist_dir, "build", "outputs", "apk")
+        apk_exists_gradle = exists(join(apk_dir_gradle, apk_gradle))
+        # on ant, the apk use the title, and have version
+        apk_ant = u'{title}-{version}-{mode}.apk'.format(
+            title=apktitle,
+            version=version,
+            mode=mode)
+        apk_dir_ant = join(dist_dir, "bin")
+        apk_exists_ant = exists(join(apk_dir_ant, apk_ant))
+
+        if apk_exists_gradle and not apk_exists_ant:
+            self.buildozer.info('Found APK file built by gradle')
+            apk, apk_dir = apk_gradle, apk_dir_gradle
             apk_dest = u'{packagename}-{version}-{mode}.apk'.format(
                 packagename=packagename, mode=mode, version=version)
-
-        else:
-            # on ant, the apk use the title, and have version
-            bl = u'\'" ,'
-            apptitle = config.get('app', 'title')
-            if hasattr(apptitle, 'decode'):
-                apptitle = apptitle.decode('utf-8')
-            apktitle = ''.join([x for x in apptitle if x not in bl])
-            apk = u'{title}-{version}-{mode}.apk'.format(
-                title=apktitle,
-                version=version,
-                mode=mode)
-            apk_dir = join(dist_dir, "bin")
+        elif not apk_exists_gradle and apk_exists_ant:
+            self.buildozer.info('Found APK file built by ant')
+            apk, apk_dir = apk_ant, apk_dir_ant
             apk_dest = apk
+        elif not apk_exists_gradle and not apk_exists_ant:
+            self.buildozer.error('Unable to find neither gradle nor ant built .apk file')
+            raise SystemError('Unable to find .apk file')
+        else:
+            self.buildozer.error('Conflict both gradle and ant built .apk file found')
+            raise SystemError('Conflict .apk file')
 
         # copy to our place
         copyfile(join(apk_dir, apk), join(self.buildozer.bin_dir, apk_dest))
